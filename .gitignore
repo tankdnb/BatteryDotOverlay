@@ -1,0 +1,8 @@
+bin/
+obj/
+releases/
+.vs/
+*.user
+*.suo
+*.tmp
+*.log

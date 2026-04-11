@@ -1,0 +1,80 @@
+Battery Dot Overlay configuration
+
+Configuration file:
+config\indicator.settings.json
+
+Important
+
+- The configuration file supports comments.
+- After editing the file, restart the application.
+
+Main settings
+
+- overlay.width_in_meters
+  Visual size of the dot overlay in VR space.
+
+- overlay.distance_meters
+  Distance from the eyes to the overlay. Smaller value makes it feel closer.
+
+- overlay.horizontal_offset_meters
+  Moves the dot to the right or left. Positive value moves it to the right.
+
+- overlay.vertical_offset_meters
+  Moves the dot up or down. Positive value moves it up.
+
+- visual.color_hex
+  Dot color in #RRGGBB format.
+  Example: #FFD54A
+
+- visual.opacity
+  Dot transparency from 0.0 to 1.0.
+
+- visual.texture_size_pixels
+  Internal texture resolution for the circle.
+
+- visual.circle_fill_ratio
+  Relative size of the circle inside the transparent square texture.
+
+- visual.edge_feather_pixels
+  Softness of the circle edge.
+
+- behavior.blink_frequency_hz
+  Blink frequency. Value 1.0 means once per second.
+
+- behavior.blink_below_percent
+  Dot starts blinking only when battery percent is below this value.
+  Example: 90.0 means the indicator starts blinking below 90%.
+
+- behavior.battery_poll_interval_ms
+  How often battery status is refreshed.
+
+- battery.enable_pico_connect_log_fallback
+  When true, the app can use fresh PICO Connect battery events for the headset if OpenVR does not report HMD battery percentage.
+
+- battery.pico_connect_logs_path
+  Optional custom path to the PICO Connect logs folder.
+  Leave empty to use the default AppData path.
+
+- battery.pico_connect_event_max_age_seconds
+  Maximum age of a PICO Connect battery event before it is considered stale.
+
+- battery.pico_connect_log_tail_bytes
+  How much of the end of each recent PICO Connect log file is scanned for battery events.
+
+- runtime.loop_delay_ms
+  Internal update loop delay.
+
+Recommended workflow
+
+1. Close the app if it is running.
+2. Edit config\indicator.settings.json.
+3. Save the file.
+4. Start BatteryDotOverlay.exe again.
+
+Notes
+
+- If the dot feels too far to the center, increase overlay.horizontal_offset_meters.
+- If the dot is too low, increase overlay.vertical_offset_meters.
+- If the dot is too bright, reduce visual.opacity.
+- If the dot is too large, reduce overlay.width_in_meters.
+- If OpenVR reports battery as unavailable on a PICO headset, keep battery.enable_pico_connect_log_fallback enabled.

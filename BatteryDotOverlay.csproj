@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="Version.props" />
+
+  <ItemGroup>
+    <Compile Include="..\vr-app-source\src\VRRealityWindow.OpenVr\OpenVrRuntime.cs" Link="Reused\OpenVrRuntime.cs" />
+    <Compile Include="..\vr-app-source\src\VRRealityWindow.OpenVr\OpenVrSdk\openvr_api.cs" Link="Reused\OpenVrSdk\openvr_api.cs">
+      <NoWarn>CS8600;CS8602;CS8603;CS8605;CS8618;CS8625</NoWarn>
+    </Compile>
+    <Compile Include="..\vr-app-source\src\VRRealityWindow.Core\Models\CameraModels.cs" Link="Reused\CameraModels.cs" />
+    <Compile Include="..\vr-app-source\src\VRRealityWindow.Core\Utilities\PngWriter.cs" Link="Reused\PngWriter.cs" />
+    <None Include="..\vr-app-source\assets\openvr_api.dll" Link="openvr_api.dll" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="config\indicator.settings.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="release-assets\START-HERE.txt" CopyToPublishDirectory="PreserveNewest" TargetPath="START-HERE.txt" />
+    <None Include="release-assets\START-HERE-RU.txt" CopyToPublishDirectory="PreserveNewest" TargetPath="START-HERE-RU.txt" />
+    <None Include="release-assets\CONFIGURE-OVERLAY.txt" CopyToPublishDirectory="PreserveNewest" TargetPath="CONFIGURE-OVERLAY.txt" />
+    <None Include="release-assets\CONFIGURE-OVERLAY-RU.txt" CopyToPublishDirectory="PreserveNewest" TargetPath="CONFIGURE-OVERLAY-RU.txt" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <NoWarn>$(NoWarn);CS8600;CS8602;CS8603;CS8605;CS8618;CS8625</NoWarn>
+  </PropertyGroup>
+
+</Project>
