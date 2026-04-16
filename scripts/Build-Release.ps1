@@ -14,6 +14,8 @@ $projectRoot = Split-Path -Parent $PSScriptRoot
 $projectPath = Join-Path $projectRoot "BatteryDotOverlay.csproj"
 $versionPropsPath = Join-Path $projectRoot "Version.props"
 $releasesRoot = Join-Path $projectRoot "releases"
+$readmePath = Join-Path $projectRoot "README.md"
+$backlogPath = Join-Path $projectRoot "BACKLOG.md"
 
 function Get-VersionData {
     param(
@@ -102,6 +104,14 @@ dotnet publish $projectPath `
     -p:DebugSymbols=false `
     -o $publishDir
 
+if (Test-Path -LiteralPath $readmePath) {
+    Copy-Item -LiteralPath $readmePath -Destination (Join-Path $publishDir "README.md") -Force
+}
+
+if (Test-Path -LiteralPath $backlogPath) {
+    Copy-Item -LiteralPath $backlogPath -Destination (Join-Path $publishDir "BACKLOG.md") -Force
+}
+
 $releaseInfo = @(
     "Battery Dot Overlay release package",
     "",
@@ -117,14 +127,27 @@ $releaseInfo = @(
     "- START-HERE-RU.txt",
     "- CONFIGURE-OVERLAY.txt",
     "- CONFIGURE-OVERLAY-RU.txt",
+    "- README.md",
+    "- BACKLOG.md",
+    "",
+    "What's new in 0.0.8",
+    "- Safer startup with single-instance protection for the same overlay_key.",
+    "- Persistent file logging with rotation.",
+    "- New service commands: --validate-config, --show-log-path and --help.",
+    "- Config normalization with warnings for invalid values.",
+    "- Expanded release documentation for testers.",
     "",
     "Launch",
     "1. Ensure SteamVR is running.",
-    "2. If using a PICO headset, keep PICO Connect running so headset battery fallback stays available.",
-    "3. Start BatteryDotOverlay.exe.",
+    "2. For Android headsets, USB debugging plus a working ADB connection gives the most reliable charging-state detection.",
+    "3. If multiple Android devices are connected, configure battery.adb_device_serial in config\\indicator.settings.json.",
+    "4. Start BatteryDotOverlay.exe.",
+    "5. Use BatteryDotOverlay.exe --validate-config to verify settings without launching the overlay.",
+    "6. Use BatteryDotOverlay.exe --show-log-path to open the active log location.",
     "",
     "Note",
-    "The application package is self-contained and does not require a separate .NET installation."
+    "The application package is self-contained and does not require a separate .NET installation.",
+    "If OpenVR does not expose headset battery or charging state directly, the app tries ADB first and PICO Connect logs as a last fallback."
 )
 
 Set-Content -LiteralPath (Join-Path $publishDir "RELEASE-INFO.txt") -Value $releaseInfo -Encoding UTF8

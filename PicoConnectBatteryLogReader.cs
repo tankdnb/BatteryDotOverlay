@@ -49,6 +49,77 @@ internal static class PicoConnectBatteryLogReader
         return DateTime.UtcNow - latest.TimestampUtc <= maxAge ? latest : null;
     }
 
+    public static PicoConnectPowerCableSample? TryReadLatestPowerCableState(BatteryConfig settings)
+    {
+        var logsPath = ResolveLogsPath(settings);
+        if (!Directory.Exists(logsPath))
+        {
+            return null;
+        }
+
+        var maxTailBytes = Math.Max(4096, settings.PicoConnectLogTailBytes);
+        PicoConnectPowerCableSample? latest = null;
+
+        foreach (var filePath in Directory
+                     .EnumerateFiles(logsPath, "pico_connect_sdk*.log", SearchOption.TopDirectoryOnly)
+                     .OrderByDescending(path => File.GetLastWriteTimeUtc(path))
+                     .Take(5))
+        {
+            var candidate = TryReadLatestPowerCableStateFromFile(filePath, maxTailBytes);
+            if (candidate is null)
+            {
+                continue;
+            }
+
+            if (latest is null || candidate.TimestampUtc > latest.TimestampUtc)
+            {
+                latest = candidate;
+            }
+        }
+
+        if (latest is null)
+        {
+            return null;
+        }
+
+        var maxAge = TimeSpan.FromSeconds(Math.Max(30, settings.PicoConnectEventMaxAgeSeconds));
+        return DateTime.UtcNow - latest.TimestampUtc <= maxAge ? latest : null;
+    }
+
+    public static IReadOnlyList<PicoConnectBatterySample> TryReadRecentBatterySamples(BatteryConfig settings, int maxSamples = 8)
+    {
+        var logsPath = ResolveLogsPath(settings);
+        if (!Directory.Exists(logsPath))
+        {
+            return Array.Empty<PicoConnectBatterySample>();
+        }
+
+        var maxTailBytes = Math.Max(4096, settings.PicoConnectLogTailBytes);
+        var candidates = new List<PicoConnectBatterySample>();
+
+        foreach (var filePath in Directory
+                     .EnumerateFiles(logsPath, "pico_connect*.log", SearchOption.TopDirectoryOnly)
+                     .OrderByDescending(path => File.GetLastWriteTimeUtc(path))
+                     .Take(5))
+        {
+            candidates.AddRange(ReadBatterySamplesFromFile(filePath, maxTailBytes, maxSamples));
+        }
+
+        if (candidates.Count == 0)
+        {
+            return Array.Empty<PicoConnectBatterySample>();
+        }
+
+        var maxAge = TimeSpan.FromSeconds(Math.Max(30, settings.PicoConnectEventMaxAgeSeconds));
+        return candidates
+            .Where(sample => DateTime.UtcNow - sample.TimestampUtc <= maxAge)
+            .OrderByDescending(sample => sample.TimestampUtc)
+            .GroupBy(sample => sample.TimestampUtc)
+            .Select(group => group.First())
+            .Take(Math.Max(2, maxSamples))
+            .ToArray();
+    }
+
     public static string ResolveLogsPath(BatteryConfig settings)
     {
         if (!string.IsNullOrWhiteSpace(settings.PicoConnectLogsPath))
@@ -81,6 +152,73 @@ internal static class PicoConnectBatteryLogReader
         for (var index = lines.Length - 1; index >= 0; index--)
         {
             var candidate = TryParseLine(lines[index], filePath);
+            if (candidate is not null)
+            {
+                return candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private static IReadOnlyList<PicoConnectBatterySample> ReadBatterySamplesFromFile(string filePath, int maxTailBytes, int maxSamples)
+    {
+        string text;
+        try
+        {
+            text = ReadTailText(filePath, maxTailBytes);
+        }
+        catch
+        {
+            return Array.Empty<PicoConnectBatterySample>();
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return Array.Empty<PicoConnectBatterySample>();
+        }
+
+        var samples = new List<PicoConnectBatterySample>();
+        var lines = text.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries);
+        for (var index = lines.Length - 1; index >= 0; index--)
+        {
+            var candidate = TryParseLine(lines[index], filePath);
+            if (candidate is null)
+            {
+                continue;
+            }
+
+            samples.Add(candidate);
+            if (samples.Count >= Math.Max(2, maxSamples))
+            {
+                break;
+            }
+        }
+
+        return samples;
+    }
+
+    private static PicoConnectPowerCableSample? TryReadLatestPowerCableStateFromFile(string filePath, int maxTailBytes)
+    {
+        string text;
+        try
+        {
+            text = ReadTailText(filePath, maxTailBytes);
+        }
+        catch
+        {
+            return null;
+        }
+
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return null;
+        }
+
+        var lines = text.Split(["\r\n", "\n"], StringSplitOptions.RemoveEmptyEntries);
+        for (var index = lines.Length - 1; index >= 0; index--)
+        {
+            var candidate = TryParsePowerCableLine(lines[index], filePath);
             if (candidate is not null)
             {
                 return candidate;
@@ -149,6 +287,43 @@ internal static class PicoConnectBatteryLogReader
         }
 
         return null;
+    }
+
+    private static PicoConnectPowerCableSample? TryParsePowerCableLine(string line, string filePath)
+    {
+        if (!line.Contains("power_cable_plug_flag", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var jsonStart = line.IndexOf('{');
+        var jsonEnd = line.LastIndexOf('}');
+        if (jsonStart < 0 || jsonEnd <= jsonStart)
+        {
+            return null;
+        }
+
+        var json = line.Substring(jsonStart, jsonEnd - jsonStart + 1);
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (!document.RootElement.TryGetProperty("power_cable_plug_flag", out var powerCableElement) ||
+                powerCableElement.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
+            {
+                return null;
+            }
+
+            var timestampUtc = TryParseTimestampUtc(line) ?? File.GetLastWriteTimeUtc(filePath);
+            return new PicoConnectPowerCableSample(
+                powerCableElement.GetBoolean(),
+                timestampUtc,
+                filePath);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     private static DateTime? TryParseTimestampUtc(string line)
@@ -220,5 +395,10 @@ internal static class PicoConnectBatteryLogReader
 
 internal sealed record PicoConnectBatterySample(
     int Percent,
+    DateTime TimestampUtc,
+    string FilePath);
+
+internal sealed record PicoConnectPowerCableSample(
+    bool IsExternalPowerConnected,
     DateTime TimestampUtc,
     string FilePath);

@@ -49,6 +49,7 @@ public sealed class BehaviorConfig
 {
     public float BlinkFrequencyHz { get; set; } = 1.0f;
     public float? BlinkBelowPercent { get; set; }
+    public bool BlinkOnlyWhenNotCharging { get; set; } = true;
     [JsonPropertyName("battery_visible_below_percent")]
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public float? BatteryVisibleBelowPercent { get; set; }
@@ -64,6 +65,10 @@ public sealed class BehaviorConfig
 public sealed class RuntimeConfig
 {
     public int LoopDelayMs { get; set; } = 50;
+    public bool EnableFileLogging { get; set; } = true;
+    public string LogsDirectory { get; set; } = "logs";
+    public int MaxLogFiles { get; set; } = 10;
+    public bool EnforceSingleInstance { get; set; } = true;
 }
 
 public sealed class BatteryConfig
@@ -71,6 +76,10 @@ public sealed class BatteryConfig
     public int PreferredDeviceIndex { get; set; } = -1;
     public bool LogDiagnosticsOnStartup { get; set; } = true;
     public bool LogDiagnosticsWhenUnavailable { get; set; } = true;
+    public bool EnableAdbFallback { get; set; } = true;
+    public string AdbPath { get; set; } = string.Empty;
+    public string AdbDeviceSerial { get; set; } = string.Empty;
+    public int AdbCommandTimeoutMs { get; set; } = 2000;
     public bool EnablePicoConnectLogFallback { get; set; } = true;
     public string PicoConnectLogsPath { get; set; } = string.Empty;
     public int PicoConnectEventMaxAgeSeconds { get; set; } = 120;
@@ -79,21 +88,37 @@ public sealed class BatteryConfig
 
 public static class BatteryDotSettingsStore
 {
-    public static BatteryDotSettings LoadOrCreate(string path)
+    public static SettingsLoadResult LoadOrCreate(string path)
     {
         if (File.Exists(path))
         {
-            var json = File.ReadAllText(path);
-            var loaded = JsonSerializer.Deserialize<BatteryDotSettings>(json, BatteryDotSettings.CreateJsonOptions());
-            if (loaded is not null)
+            try
             {
-                return Normalize(loaded);
+                var json = File.ReadAllText(path);
+                var loaded = JsonSerializer.Deserialize<BatteryDotSettings>(json, BatteryDotSettings.CreateJsonOptions());
+                if (loaded is not null)
+                {
+                    return SettingsLoadResult.Success(Normalize(loaded));
+                }
+
+                return SettingsLoadResult.Failure("Settings file could not be read because it did not contain a valid JSON object.");
+            }
+            catch (Exception ex)
+            {
+                return SettingsLoadResult.Failure($"Failed to load settings from '{path}': {ex.Message}");
             }
         }
 
-        var defaults = Normalize(BatteryDotSettings.CreateDefault());
-        Save(path, defaults);
-        return defaults;
+        try
+        {
+            var defaults = Normalize(BatteryDotSettings.CreateDefault());
+            Save(path, defaults);
+            return SettingsLoadResult.Success(defaults, createdDefaultFile: true, message: "Default settings file was created because no config file was found.");
+        }
+        catch (Exception ex)
+        {
+            return SettingsLoadResult.Failure($"Failed to create default settings file at '{path}': {ex.Message}");
+        }
     }
 
     public static void Save(string path, BatteryDotSettings settings)
@@ -106,6 +131,8 @@ public static class BatteryDotSettingsStore
     private static BatteryDotSettings Normalize(BatteryDotSettings settings)
     {
         settings.Behavior ??= new BehaviorConfig();
+        settings.Battery ??= new BatteryConfig();
+        settings.Runtime ??= new RuntimeConfig();
 
         if (settings.Behavior.BlinkBelowPercent is null)
         {
@@ -113,7 +140,33 @@ public static class BatteryDotSettingsStore
         }
 
         settings.Behavior.BatteryVisibleBelowPercent = null;
+        settings.Battery.AdbCommandTimeoutMs = Math.Clamp(settings.Battery.AdbCommandTimeoutMs, 500, 30000);
 
         return settings;
+    }
+}
+
+public sealed record SettingsLoadResult(
+    bool IsSuccess,
+    BatteryDotSettings? Settings,
+    bool CreatedDefaultFile,
+    string Message)
+{
+    public static SettingsLoadResult Success(BatteryDotSettings settings, bool createdDefaultFile = false, string message = "")
+    {
+        return new SettingsLoadResult(
+            true,
+            settings,
+            createdDefaultFile,
+            message);
+    }
+
+    public static SettingsLoadResult Failure(string message)
+    {
+        return new SettingsLoadResult(
+            false,
+            null,
+            false,
+            message);
     }
 }

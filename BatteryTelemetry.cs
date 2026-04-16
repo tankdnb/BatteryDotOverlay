@@ -8,19 +8,47 @@ internal static class BatteryTelemetry
 {
     public static BatteryStateSnapshot Read(OpenVrRuntime runtime, BatteryDotSettings settings)
     {
-        runtime.EnsureInitialized();
+        IReadOnlyList<TrackedDeviceBatterySample> samples = Array.Empty<TrackedDeviceBatterySample>();
+        TrackedDeviceBatterySample? openVrBatteryDevice = null;
+        TrackedDeviceBatterySample? openVrChargingDevice = null;
 
-        var samples = ScanConnectedDevices(runtime);
-        var openVrDevice = SelectOpenVrBatteryDevice(samples, settings);
-        if (openVrDevice is not null)
+        try
         {
-            return CreateSnapshot(CreateOpenVrSource(openVrDevice), settings, samples);
+            runtime.EnsureInitialized();
+            samples = ScanConnectedDevices(runtime);
+            openVrBatteryDevice = SelectOpenVrBatteryDevice(samples, settings);
+            openVrChargingDevice = SelectOpenVrChargingDevice(samples, settings, openVrBatteryDevice?.DeviceIndex);
+        }
+        catch
+        {
+            // OpenVR remains the primary source when available, but charge/battery fallbacks
+            // should still work for diagnostics and unsupported runtimes.
         }
 
-        var picoConnectSource = TryReadPicoConnectFallback(settings);
-        return picoConnectSource is not null
-            ? CreateSnapshot(picoConnectSource, settings, samples)
-            : BatteryStateSnapshot.Unavailable(samples);
+        var adbProbe = AdbBatteryServiceReader.Read(settings.Battery);
+
+        var batterySource = openVrBatteryDevice is not null
+            ? CreateOpenVrBatterySource(openVrBatteryDevice)
+            : TryCreateAdbBatterySource(adbProbe) ?? TryReadPicoConnectBatteryFallback(settings);
+
+        var chargingSource = TryCreateAdbChargingSource(adbProbe) ?? (openVrChargingDevice is not null
+            ? CreateOpenVrChargingSource(openVrChargingDevice)
+            : TryReadPicoConnectChargingFallback(settings));
+
+        return batterySource is not null
+            ? CreateSnapshot(batterySource, chargingSource, settings, samples)
+            : BatteryStateSnapshot.Unavailable(samples, chargingSource);
+    }
+
+    public static BatteryStateSnapshot Read(BatteryDotSettings settings)
+    {
+        var adbProbe = AdbBatteryServiceReader.Read(settings.Battery);
+        var batterySource = TryCreateAdbBatterySource(adbProbe) ?? TryReadPicoConnectBatteryFallback(settings);
+        var chargingSource = TryCreateAdbChargingSource(adbProbe) ?? TryReadPicoConnectChargingFallback(settings);
+
+        return batterySource is not null
+            ? CreateSnapshot(batterySource, chargingSource, settings, Array.Empty<TrackedDeviceBatterySample>())
+            : BatteryStateSnapshot.Unavailable(Array.Empty<TrackedDeviceBatterySample>(), chargingSource);
     }
 
     public static IReadOnlyList<TrackedDeviceBatterySample> ScanConnectedDevices(OpenVrRuntime runtime)
@@ -111,15 +139,42 @@ internal static class BatteryTelemetry
 
     public static string FormatFallbackDiagnostics(BatteryDotSettings settings)
     {
+        var lines = new List<string>();
+        var adbProbe = AdbBatteryServiceReader.Read(settings.Battery);
+
+        lines.Add(adbProbe.IsAvailable && adbProbe.Sample is not null
+            ? $"[battery-diag] ADB battery: {adbProbe.Sample.Percent:0.0}% from {adbProbe.Sample.GetDescription()}"
+            : $"[battery-diag] ADB fallback: {adbProbe.Message}");
+
+        lines.Add(adbProbe.IsAvailable && adbProbe.Sample is not null
+            ? $"[battery-diag] ADB power: {DescribeChargingState(adbProbe.Sample.ChargingState)} from {adbProbe.Sample.GetDescription()} ({adbProbe.Sample.GetPowerDescription()})"
+            : "[battery-diag] ADB power: unavailable");
+
         if (!settings.Battery.EnablePicoConnectLogFallback)
         {
-            return "[battery-diag] PICO Connect fallback is disabled in settings.";
+            lines.Add("[battery-diag] PICO Connect fallback is disabled in settings.");
+            return string.Join(Environment.NewLine, lines);
         }
 
-        var fallback = TryReadPicoConnectFallback(settings);
-        return fallback is not null
-            ? $"[battery-diag] PICO Connect headset battery: {fallback.Percent:0.0}% from {fallback.Description}"
-            : $"[battery-diag] PICO Connect fallback: no fresh headset battery event found in {PicoConnectBatteryLogReader.ResolveLogsPath(settings.Battery)}";
+        var logsPath = PicoConnectBatteryLogReader.ResolveLogsPath(settings.Battery);
+
+        var batteryFallback = TryReadPicoConnectBatteryFallback(settings);
+        lines.Add(batteryFallback is not null
+            ? $"[battery-diag] PICO Connect headset battery: {batteryFallback.Percent:0.0}% from {batteryFallback.Description}"
+            : $"[battery-diag] PICO Connect headset battery: no fresh headset battery event found in {logsPath}");
+
+        var chargingFallback = TryReadPicoConnectChargingFallback(settings);
+        lines.Add(chargingFallback is not null
+            ? $"[battery-diag] PICO Connect headset power: {DescribeChargingState(chargingFallback.State)} from {chargingFallback.Description}"
+            : $"[battery-diag] PICO Connect headset power: no fresh power-cable event found in {logsPath}");
+
+        var batteryTrend = AssessPicoConnectBatteryTrend(settings);
+        if (batteryTrend != PicoBatteryTrend.Unknown)
+        {
+            lines.Add($"[battery-diag] PICO Connect battery trend: {DescribeBatteryTrend(batteryTrend)}");
+        }
+
+        return string.Join(Environment.NewLine, lines);
     }
 
     private static TrackedDeviceBatterySample? SelectOpenVrBatteryDevice(
@@ -149,7 +204,47 @@ internal static class BatteryTelemetry
         return null;
     }
 
-    private static BatteryReadingSource? TryReadPicoConnectFallback(BatteryDotSettings settings)
+    private static TrackedDeviceBatterySample? SelectOpenVrChargingDevice(
+        IReadOnlyList<TrackedDeviceBatterySample> samples,
+        BatteryDotSettings settings,
+        uint? preferredBatteryDeviceIndex)
+    {
+        if (settings.Battery.PreferredDeviceIndex >= 0)
+        {
+            var preferred = samples.FirstOrDefault(sample =>
+                sample.DeviceIndex == settings.Battery.PreferredDeviceIndex &&
+                sample.HasChargingValue);
+
+            if (preferred is not null)
+            {
+                return preferred;
+            }
+        }
+
+        if (preferredBatteryDeviceIndex is not null)
+        {
+            var sameDevice = samples.FirstOrDefault(sample =>
+                sample.DeviceIndex == preferredBatteryDeviceIndex.Value &&
+                sample.HasChargingValue);
+
+            if (sameDevice is not null)
+            {
+                return sameDevice;
+            }
+        }
+
+        var hmdCharging = samples.FirstOrDefault(sample =>
+            sample.DeviceClass == ETrackedDeviceClass.HMD &&
+            sample.HasChargingValue);
+        if (hmdCharging is not null)
+        {
+            return hmdCharging;
+        }
+
+        return null;
+    }
+
+    private static BatteryReadingSource? TryReadPicoConnectBatteryFallback(BatteryDotSettings settings)
     {
         if (!settings.Battery.EnablePicoConnectLogFallback)
         {
@@ -165,7 +260,67 @@ internal static class BatteryTelemetry
                 sample.Percent);
     }
 
-    private static BatteryReadingSource CreateOpenVrSource(TrackedDeviceBatterySample sample)
+    private static ChargingStateSource? TryReadPicoConnectChargingFallback(BatteryDotSettings settings)
+    {
+        if (!settings.Battery.EnablePicoConnectLogFallback)
+        {
+            return null;
+        }
+
+        var sample = PicoConnectBatteryLogReader.TryReadLatestPowerCableState(settings.Battery);
+        if (sample is null)
+        {
+            return null;
+        }
+
+        var description = $"PICO Connect SDK log ({Path.GetFileName(sample.FilePath)})";
+        if (!sample.IsExternalPowerConnected)
+        {
+            return new ChargingStateSource(
+                "pico-connect-sdk-log",
+                description,
+                BatteryChargingState.NotCharging);
+        }
+
+        var batteryTrend = AssessPicoConnectBatteryTrend(settings);
+        return batteryTrend switch
+        {
+            PicoBatteryTrend.Decreasing => new ChargingStateSource(
+                "pico-connect-sdk-log",
+                $"{description}; battery trend is decreasing",
+                BatteryChargingState.NotCharging),
+            PicoBatteryTrend.Increasing => new ChargingStateSource(
+                "pico-connect-sdk-log",
+                $"{description}; battery trend is increasing",
+                BatteryChargingState.Charging),
+            _ => new ChargingStateSource(
+                "pico-connect-sdk-log",
+                $"{description}; charging flag is not confirmed by battery trend",
+                BatteryChargingState.Unknown),
+        };
+    }
+
+    private static BatteryReadingSource? TryCreateAdbBatterySource(AdbBatteryProbeResult adbProbe)
+    {
+        return adbProbe.IsAvailable && adbProbe.Sample is not null
+            ? new BatteryReadingSource(
+                "adb-battery-service",
+                adbProbe.Sample.GetDescription(),
+                adbProbe.Sample.Percent)
+            : null;
+    }
+
+    private static ChargingStateSource? TryCreateAdbChargingSource(AdbBatteryProbeResult adbProbe)
+    {
+        return adbProbe.IsAvailable && adbProbe.Sample is not null
+            ? new ChargingStateSource(
+                "adb-battery-service",
+                adbProbe.Sample.GetDescription(),
+                adbProbe.Sample.ChargingState)
+            : null;
+    }
+
+    private static BatteryReadingSource CreateOpenVrBatterySource(TrackedDeviceBatterySample sample)
     {
         return new BatteryReadingSource(
             "openvr",
@@ -173,14 +328,29 @@ internal static class BatteryTelemetry
             sample.BatteryPercent);
     }
 
+    private static ChargingStateSource CreateOpenVrChargingSource(TrackedDeviceBatterySample sample)
+    {
+        return new ChargingStateSource(
+            "openvr",
+            $"OpenVR device #{sample.DeviceIndex} ({sample.DeviceClass})",
+            sample.IsCharging ? BatteryChargingState.Charging : BatteryChargingState.NotCharging);
+    }
+
     private static BatteryStateSnapshot CreateSnapshot(
-        BatteryReadingSource source,
+        BatteryReadingSource batterySource,
+        ChargingStateSource? chargingSource,
         BatteryDotSettings settings,
         IReadOnlyList<TrackedDeviceBatterySample> samples)
     {
-        var percent = Math.Clamp(source.Percent, 0f, 100f);
-        var shouldWarn = percent < settings.Behavior.GetEffectiveBlinkBelowPercent();
-        return BatteryStateSnapshot.Available(source with { Percent = percent }, shouldWarn, samples);
+        var percent = Math.Clamp(batterySource.Percent, 0f, 100f);
+        var effectiveBatterySource = batterySource with { Percent = percent };
+        var isBelowThreshold = percent < settings.Behavior.GetEffectiveBlinkBelowPercent();
+        var shouldWarn = isBelowThreshold && ShouldWarnForChargingState(chargingSource?.State ?? BatteryChargingState.Unknown, settings);
+        return BatteryStateSnapshot.Available(
+            effectiveBatterySource,
+            chargingSource,
+            shouldWarn,
+            samples);
     }
 
     private static string GetStringProperty(OpenVrRuntime runtime, uint deviceIndex, ETrackedDeviceProperty property)
@@ -189,7 +359,81 @@ internal static class BatteryTelemetry
         return string.IsNullOrWhiteSpace(value) ? string.Empty : value.Trim();
     }
 
+    private static bool ShouldWarnForChargingState(BatteryChargingState chargingState, BatteryDotSettings settings)
+    {
+        if (!settings.Behavior.BlinkOnlyWhenNotCharging)
+        {
+            return true;
+        }
+
+        // Preserve the previous warning behavior if charging state is unavailable.
+        return chargingState != BatteryChargingState.Charging;
+    }
+
+    private static string DescribeChargingState(BatteryChargingState chargingState)
+    {
+        return chargingState switch
+        {
+            BatteryChargingState.Charging => "external power connected",
+            BatteryChargingState.NotCharging => "external power not connected",
+            _ => "unknown",
+        };
+    }
+
+    private static PicoBatteryTrend AssessPicoConnectBatteryTrend(BatteryDotSettings settings)
+    {
+        var samples = PicoConnectBatteryLogReader.TryReadRecentBatterySamples(settings.Battery);
+        if (samples.Count < 2)
+        {
+            return PicoBatteryTrend.Unknown;
+        }
+
+        var ordered = samples
+            .OrderBy(sample => sample.TimestampUtc)
+            .ToArray();
+
+        var oldest = ordered.First();
+        var newest = ordered.Last();
+        if (newest.Percent > oldest.Percent)
+        {
+            return PicoBatteryTrend.Increasing;
+        }
+
+        if (newest.Percent < oldest.Percent)
+        {
+            return PicoBatteryTrend.Decreasing;
+        }
+
+        return PicoBatteryTrend.Flat;
+    }
+
+    private static string DescribeBatteryTrend(PicoBatteryTrend trend)
+    {
+        return trend switch
+        {
+            PicoBatteryTrend.Increasing => "increasing",
+            PicoBatteryTrend.Decreasing => "decreasing",
+            PicoBatteryTrend.Flat => "flat",
+            _ => "unknown",
+        };
+    }
+
     private static string Fallback(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+}
+
+internal enum PicoBatteryTrend
+{
+    Unknown,
+    Flat,
+    Increasing,
+    Decreasing,
+}
+
+internal enum BatteryChargingState
+{
+    Unknown,
+    Charging,
+    NotCharging,
 }
 
 internal sealed record TrackedDeviceBatterySample(
@@ -212,23 +456,47 @@ internal sealed record BatteryReadingSource(
     string Description,
     float Percent);
 
+internal sealed record ChargingStateSource(
+    string Provider,
+    string Description,
+    BatteryChargingState State);
+
 internal sealed record BatteryStateSnapshot(
     bool IsAvailable,
     float Percent,
     bool ShouldWarn,
+    BatteryChargingState ChargingState,
     BatteryReadingSource? Source,
+    ChargingStateSource? ChargingSource,
     IReadOnlyList<TrackedDeviceBatterySample> Samples)
 {
     public static BatteryStateSnapshot Available(
         BatteryReadingSource source,
+        ChargingStateSource? chargingSource,
         bool shouldWarn,
         IReadOnlyList<TrackedDeviceBatterySample> samples)
     {
-        return new BatteryStateSnapshot(true, source.Percent, shouldWarn, source, samples);
+        return new BatteryStateSnapshot(
+            true,
+            source.Percent,
+            shouldWarn,
+            chargingSource?.State ?? BatteryChargingState.Unknown,
+            source,
+            chargingSource,
+            samples);
     }
 
-    public static BatteryStateSnapshot Unavailable(IReadOnlyList<TrackedDeviceBatterySample> samples)
+    public static BatteryStateSnapshot Unavailable(
+        IReadOnlyList<TrackedDeviceBatterySample> samples,
+        ChargingStateSource? chargingSource = null)
     {
-        return new BatteryStateSnapshot(false, 0f, false, null, samples);
+        return new BatteryStateSnapshot(
+            false,
+            0f,
+            false,
+            chargingSource?.State ?? BatteryChargingState.Unknown,
+            null,
+            chargingSource,
+            samples);
     }
 }

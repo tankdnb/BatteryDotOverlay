@@ -2,28 +2,28 @@ Battery Dot Overlay
 
 Quick start
 
-1. Unpack the release archive into any folder.
-2. Make sure SteamVR is installed, running, and the headset is connected.
-3. If you use a PICO headset, keep PICO Connect running because battery fallback is read from its local logs when OpenVR does not expose HMD battery.
-4. Start BatteryDotOverlay.exe.
-5. The app will show a small semi-transparent yellow dot in the upper-right area of view when HMD battery is below 100%.
-6. If battery is 100%, the dot stays hidden.
-7. To stop the app, close the console window or press Ctrl+C in the console.
+1. Extract the release archive to any folder.
+2. Make sure SteamVR is installed, running, and your headset is connected.
+3. For Android headsets, USB debugging plus a working `adb` connection gives the most reliable charging-state detection.
+4. If multiple Android devices are connected, set `battery.adb_device_serial` in `config\indicator.settings.json`.
+5. Start `BatteryDotOverlay.exe`.
 
-Important
+What is new in this build
 
-- This release is self-contained: no .NET installation is required.
-- SteamVR/OpenVR runtime is still required on the test PC because the overlay works through SteamVR.
-- On PICO headsets the app can read headset battery from recent PICO Connect battery events if the OpenVR driver does not expose battery percentage.
-- Settings are stored in config\indicator.settings.json.
-- Russian quick-start guide: START-HERE-RU.txt
-- Russian configuration guide: CONFIGURE-OVERLAY-RU.txt
+- duplicate launches are blocked more safely;
+- the app writes a persistent log file;
+- `--validate-config` checks the config without starting the overlay;
+- startup errors are more descriptive.
 
-Files in this release
+Useful commands
 
-- BatteryDotOverlay.exe: main application
-- config\indicator.settings.json: overlay settings
-- CONFIGURE-OVERLAY.txt: configuration guide
-- START-HERE-RU.txt: Russian quick-start guide
-- CONFIGURE-OVERLAY-RU.txt: Russian configuration guide
-- RELEASE-INFO.txt: build/version information
+- `BatteryDotOverlay.exe --show-log-path`
+- `BatteryDotOverlay.exe --validate-config`
+- `BatteryDotOverlay.exe --diagnose-battery`
+
+Notes
+
+- The release is self-contained and does not require a separate .NET installation.
+- SteamVR/OpenVR is still required because this is an overlay application.
+- Main config file: `config\indicator.settings.json`
+- Parameter reference: `CONFIGURE-OVERLAY.txt`

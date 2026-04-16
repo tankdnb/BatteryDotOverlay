@@ -8,50 +8,38 @@ config\indicator.settings.json
 
 - Файл конфигурации поддерживает комментарии.
 - После изменения файла нужно перезапустить приложение.
-- Если не уверены, меняйте по одному параметру за раз.
-
-Описание параметров
+- Если не уверены, меняйте параметры по одному.
 
 Раздел overlay
 
 - overlay.overlay_key
   Уникальный идентификатор overlay в OpenVR/SteamVR.
-  Обычно менять не нужно.
-  Меняйте только если хотите запускать несколько копий приложения одновременно.
+  Если хотите запускать независимые копии, у каждой должен быть свой ключ.
 
 - overlay.overlay_name
-  Человеко-читаемое имя overlay.
-  На внешний вид точки почти не влияет.
+  Человекочитаемое имя overlay.
 
 - overlay.width_in_meters
   Размер точки в VR-пространстве.
-  Меньше значение = меньше точка.
-  Больше значение = больше точка.
 
 - overlay.distance_meters
   Расстояние точки от глаз.
-  Меньше значение = точка ощущается ближе.
-  Больше значение = точка ощущается дальше.
 
 - overlay.horizontal_offset_meters
   Смещение по горизонтали.
   Положительное значение двигает точку вправо.
-  Отрицательное значение двигает точку влево.
 
 - overlay.vertical_offset_meters
   Смещение по вертикали.
   Положительное значение двигает точку вверх.
-  Отрицательное значение двигает точку вниз.
 
 - overlay.sort_order
   Порядок отрисовки overlay.
-  Обычно менять не нужно.
 
 Раздел visual
 
 - visual.color_hex
   Цвет точки в формате #RRGGBB.
-  Пример: #FFD54A
 
 - visual.opacity
   Прозрачность точки.
@@ -60,89 +48,110 @@ config\indicator.settings.json
 
 - visual.texture_size_pixels
   Размер внутренней текстуры круга.
-  Обычно стандартного значения достаточно.
 
 - visual.circle_fill_ratio
   Насколько большой круг рисуется внутри прозрачной текстуры.
-  Больше значение = круг крупнее.
 
 - visual.edge_feather_pixels
   Мягкость края круга.
-  Больше значение = более мягкий край.
 
 Раздел behavior
 
 - behavior.blink_frequency_hz
   Частота мигания.
   1.0 = один цикл мигания в секунду.
-  2.0 = два цикла мигания в секунду.
   0.0 = без мигания, точка просто постоянно видна.
 
 - behavior.blink_below_percent
-  Порог заряда, ниже которого включается индикатор.
-  Примеры:
-  100.0 = показывать при любом заряде ниже 100%.
-  90.0 = показывать только ниже 90%.
-  25.0 = показывать только при действительно низком заряде.
+  Порог заряда, ниже которого индикатор может включиться.
+
+- behavior.blink_only_when_not_charging
+  Учитывать ли зарядку шлема.
+  По умолчанию: true.
 
 - behavior.battery_poll_interval_ms
-  Как часто приложение обновляет уровень батареи.
-  1000 = раз в секунду.
+  Как часто приложение обновляет батарею и статус зарядки.
 
 - behavior.status_log_interval_seconds
-  Как часто приложение пишет статус в консоль.
-  На саму точку в шлеме не влияет.
+  Как часто приложение пишет статус в консоль и лог.
 
 Раздел battery
 
 - battery.preferred_device_index
-  Принудительный индекс tracked device для чтения батареи через OpenVR.
+  Принудительный индекс tracked device для чтения через OpenVR.
   -1 = автоматический режим.
-  Обычно оставляйте -1.
 
 - battery.log_diagnostics_on_startup
   Печатать ли подробную диагностику при старте.
-  Полезно для поиска проблем.
 
 - battery.log_diagnostics_when_unavailable
-  Печатать ли диагностику, если батарея не была получена.
-  Полезно для нестандартных runtime или драйверов.
+  Печатать ли дополнительную диагностику, если батарея не была получена.
+
+- battery.enable_adb_fallback
+  Включить ли ADB fallback.
+  Это основной универсальный fallback для Android-шлемов, если OpenVR не помогает.
+
+- battery.adb_path
+  Путь к adb.exe или к папке, где лежит adb.exe.
+  Пустая строка = автопоиск.
+
+- battery.adb_device_serial
+  Serial Android-устройства.
+  Нужен, если к ПК подключено несколько Android-устройств.
+
+- battery.adb_command_timeout_ms
+  Таймаут ADB-команды.
 
 - battery.enable_pico_connect_log_fallback
-  Разрешает fallback для PICO Connect.
-  Если OpenVR не отдаёт батарею HMD, приложение попробует прочитать её из локальных логов PICO Connect.
-  Для PICO рекомендуется оставлять true.
+  Разрешить ли запасной fallback через логи PICO Connect.
 
 - battery.pico_connect_logs_path
-  Пользовательский путь к папке логов PICO Connect.
-  Пустая строка = использовать путь по умолчанию.
+  Пользовательский путь к логам PICO Connect.
 
 - battery.pico_connect_event_max_age_seconds
-  Максимальный возраст события батареи из логов PICO Connect.
-  Если событие старше, оно считается устаревшим.
+  Максимальный возраст событий из PICO Connect.
 
 - battery.pico_connect_log_tail_bytes
-  Сколько данных читать с конца логов PICO Connect при поиске свежего значения батареи.
-  Обычно менять не нужно.
+  Сколько данных читать с конца логов PICO Connect.
 
 Раздел runtime
 
 - runtime.loop_delay_ms
   Внутренняя задержка рабочего цикла приложения.
-  Обычно менять не нужно.
 
-Рекомендуемая настройка под ваш сценарий
+- runtime.enable_file_logging
+  Включить ли логирование в файл.
+  По умолчанию: true.
 
-1. Если нужно, чтобы точка появлялась при любом заряде ниже 100%, оставьте behavior.blink_below_percent = 100.0
-2. Если нужно предупреждение только при снижении, например, ниже 90%, поставьте behavior.blink_below_percent = 90.0
-3. Если точка слишком яркая, уменьшите visual.opacity
-4. Если точка слишком большая, уменьшите overlay.width_in_meters
-5. Если точка слишком близко к центру, увеличьте overlay.horizontal_offset_meters
-6. Если точка слишком низко, увеличьте overlay.vertical_offset_meters
+- runtime.logs_directory
+  Папка для логов.
+  Можно указывать относительный путь, тогда он считается от папки exe.
 
-Минимальный рабочий пример
+- runtime.max_log_files
+  Сколько последних логов хранить.
+
+- runtime.enforce_single_instance
+  Защита от повторного запуска второй копии приложения с тем же overlay_key.
+  По умолчанию: true.
+
+Новые сервисные команды
+
+- `BatteryDotOverlay.exe --validate-config`
+  Проверяет конфиг и показывает итоговые пути.
+
+- `BatteryDotOverlay.exe --show-log-path`
+  Показывает путь к активному лог-файлу.
+
+- `BatteryDotOverlay.exe --diagnose-battery`
+  Показывает диагностику батареи и зарядки.
+
+Рекомендуемая настройка под обычный сценарий
 
 - behavior.blink_frequency_hz = 1.0
 - behavior.blink_below_percent = 90.0
+- behavior.blink_only_when_not_charging = true
+- battery.enable_adb_fallback = true
+- runtime.enable_file_logging = true
+- runtime.enforce_single_instance = true
 - visual.color_hex = #FFD54A
 - visual.opacity = 0.55
