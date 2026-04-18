@@ -237,9 +237,9 @@ Version.props
 
 ## Основа реализации
 
-Проект опирается на собранную информацию и кодовую базу `VR-app`:
+Проект опирается на собранную информацию и материалы из репозитория [tankdnb/VR-apps-lab](https://github.com/tankdnb/VR-apps-lab):
 
 - переиспользован `OpenVrRuntime`;
 - использован подход companion overlay для `OpenVR`;
 - для текстуры индикатора используется file-backed PNG overlay;
-- в материалах `VR-app` использовались идеи device-monitor overlay и диагностики батареи/зарядки.
+- в материалах `VR-apps-lab` использовались идеи device-monitor overlay и диагностики батареи/зарядки.
